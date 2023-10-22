@@ -10,17 +10,24 @@ public class SkateboardController : MonoBehaviour
     [Range(-1, 1)]
     public float m_Forward;
     public float m_FwdForce = 10;
-    public float m_TurnForce = 5; // Add a turn force
+    public float m_TurnForce = 5;
+    public float jumpTiltAmount = 10.0f;
+    public float jumpDuration = 0.2f;
+    public float jumpForce = 1000.0f; // Jump force
+    public float cooldownDuration = 2.0f;
+
     private Vector3 m_surfaceNormal = new Vector3();
     private Vector3 m_collisionPoint = new Vector3();
-    public bool m_useRaycast = true;
     private bool m_onSurface;
     private Collision m_surfaceCollisionInfo;
-    private Rigidbody m_rigidbody;
+    private Rigidbody m_rb;
+    private bool isJumping = false;
+    private float jumpEndTime = 0f;
+    private float lastTurnTime = 0f;
 
     void Start()
     {
-        m_rigidbody = GetComponent<Rigidbody>();
+        m_rb = GetComponent<Rigidbody>();
     }
 
     void Update()
@@ -32,12 +39,24 @@ public class SkateboardController : MonoBehaviour
     {
         AlignToSurface();
         ProcessForce();
-        TurnSkateboard(); // Call the function to apply turning
+        TurnSkateboard();
     }
 
     private void ProcessInputs()
     {
         m_Forward = Input.GetAxis("Vertical");
+
+        if (Input.GetKey("t") && Time.time - lastTurnTime >= cooldownDuration)
+        {
+            m_skateboard.Rotate(Vector3.up, 180f);
+            lastTurnTime = Time.time;
+        }
+
+        if (Input.GetKeyDown(KeyCode.Space) && !isJumping)
+        {
+            // Perform a jump tilt when the space bar is pressed
+            StartCoroutine(JumpTilt());
+        }
     }
 
     private void ProcessForce()
@@ -45,19 +64,40 @@ public class SkateboardController : MonoBehaviour
         if (!m_onSurface)
             return;
 
-        m_rigidbody.AddForce(m_skateboard.forward * m_FwdForce * m_Forward);
+        m_rb.AddForce(m_skateboard.forward * m_FwdForce * m_Forward);
+
+        if (isJumping)
+        {
+            // Apply jump force to lift the skateboard off the ground
+            m_rb.AddForce(Vector3.up * jumpForce);
+        }
     }
 
     private void TurnSkateboard()
     {
-        // Get the horizontal input for turning
         float turnInput = Input.GetAxis("Horizontal");
-
-        // Calculate the rotation based on the input
         Quaternion turnRotation = Quaternion.Euler(0, turnInput * m_TurnForce, 0);
-
-        // Apply the rotation to the skateboard
         m_skateboard.rotation *= turnRotation;
+    }
+
+    private IEnumerator JumpTilt()
+    {
+        isJumping = true;
+        jumpEndTime = Time.time + jumpDuration;
+
+        while (Time.time < jumpEndTime)
+        {
+            m_skateboard.Rotate(Vector3.right, -jumpTiltAmount * Time.deltaTime);
+            yield return null;
+        }
+
+        while (Time.time < jumpEndTime + jumpDuration)
+        {
+            m_skateboard.Rotate(Vector3.right, jumpTiltAmount * Time.deltaTime);
+            yield return null;
+        }
+
+        isJumping = false;
     }
 
     private void OnCollisionStay(Collision other)
@@ -76,29 +116,15 @@ public class SkateboardController : MonoBehaviour
 
     void AlignToSurface()
     {
-        if (m_useRaycast)
+        var hit = new RaycastHit();
+        var onSurface = Physics.Raycast(transform.position, Vector3.down, out hit, m_rayDistance);
+        if (onSurface)
         {
-            var hit = new RaycastHit();
-            var onSurface = Physics.Raycast(transform.position, Vector3.down, out hit, m_rayDistance);
-            if (onSurface)
-            {
-                var localRot = Quaternion.FromToRotation(transform.up, hit.normal) * transform.rotation;
-                var euler = localRot.eulerAngles;
-                euler.y = 0;
-                localRot.eulerAngles = euler;
-                m_skateboard.localRotation = Quaternion.LerpUnclamped(m_skateboard.localRotation, localRot, m_alignSpeed * Time.fixedDeltaTime);
-            }
-        }
-        else
-        {
-            if (m_onSurface)
-            {
-                var localRot = Quaternion.FromToRotation(transform.up, m_surfaceNormal) * transform.rotation;
-                var euler = localRot.eulerAngles;
-                euler.y = 0;
-                localRot.eulerAngles = euler;
-                m_skateboard.localRotation = Quaternion.LerpUnclamped(m_skateboard.localRotation, localRot, m_alignSpeed * Time.fixedDeltaTime);
-            }
+            var localRot = Quaternion.FromToRotation(transform.up, hit.normal) * transform.rotation;
+            var euler = localRot.eulerAngles;
+            euler.y = 0;
+            localRot.eulerAngles = euler;
+            m_skateboard.localRotation = Quaternion.LerpUnclamped(m_skateboard.localRotation, localRot, m_alignSpeed * Time.fixedDeltaTime);
         }
     }
 }
